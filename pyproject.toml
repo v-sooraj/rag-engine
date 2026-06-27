@@ -1,7 +1,15 @@
 [project]
 name = "rag-engine"
 version = "0.1.0"
-description = "Add your description here"
+description = "A production-oriented Retrieval-Augmented Generation (RAG) engine built from scratch to understand the complete RAG pipeline."
 readme = "README.md"
-requires-python = ">=3.14"
-dependencies = []
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
