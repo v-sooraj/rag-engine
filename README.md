@@ -28,14 +28,14 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 - Configuration management
 - Environment loading
 - Unit tests
+- Database connectivity
 
 ### 🚧 In Progress
 
-- Database connectivity
+- PDF loading
 
 ### 📋 Planned
 
-- PDF loading
 - Chunking
 - Embeddings
 - Vector storage
@@ -44,3 +44,7 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 - LLM integration
 - FastAPI
 - Observability
+
+## Documentation
+
+Detailed architectural discussions and engineering decisions can be found under the `docs/architecture` directory.
