@@ -18,6 +18,15 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 - Pydantic Settings
 - pytest
 
+## Getting Started
+
+1. Clone the repository.
+2. Copy `.env.example` to `.env`.
+3. Copy `docker/.env.example` to `docker/.env`.
+4. Update the configuration values.
+5. Start PostgreSQL using Docker Compose.
+6. Run the test suite.
+
 ## Current Status
 
 ### ✅ Completed
@@ -29,14 +38,14 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 - Environment loading
 - Unit tests
 - Database connectivity
+- PDF loading
 
 ### 🚧 In Progress
 
-- PDF loading
+- Chunking
 
 ### 📋 Planned
 
-- Chunking
 - Embeddings
 - Vector storage
 - Retrieval
