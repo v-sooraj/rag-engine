@@ -218,3 +218,5 @@ __marimo__/
 .streamlit/secrets.toml
 /.idea/misc.xml
 /.idea/rag-engine.iml
+/.test.env
+/.env
