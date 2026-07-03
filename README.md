@@ -38,15 +38,15 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 - Environment loading
 - Unit tests
 - Database connectivity
-- PDF loading
+- Document loading
+- Document chunking
 
 ### 🚧 In Progress
 
-- Chunking
+- Embeddings
 
 ### 📋 Planned
 
-- Embeddings
 - Vector storage
 - Retrieval
 - Prompt augmentation
