@@ -1,7 +1,10 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class DocumentMetadata(BaseModel):
+
+    model_config = ConfigDict(frozen=True)
+
     title: str | None = None
     language: str | None = None
     author: str | None = None
@@ -9,5 +12,8 @@ class DocumentMetadata(BaseModel):
     filename: str = Field(min_length=1)
 
 class Document(BaseModel):
+
+    model_config = ConfigDict(frozen=True)
+
     content: str = Field(min_length=1)
     metadata: DocumentMetadata
