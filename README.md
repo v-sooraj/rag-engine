@@ -16,6 +16,8 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 - Docker
 - uv
 - Pydantic Settings
+- PyMuPDF
+- sentence-transformers
 - pytest
 
 ## Getting Started
@@ -27,33 +29,27 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 5. Start PostgreSQL using Docker Compose.
 6. Run the test suite.
 
-## Current Status
+## Current Pipeline
 
-### ✅ Completed
-
-- Project bootstrap
-- Docker infrastructure
-- PostgreSQL + pgvector
-- Configuration management
-- Environment loading
-- Unit tests
-- Database connectivity
-- Document loading
-- Document chunking
-
-### 🚧 In Progress
-
-- Embeddings
-
-### 📋 Planned
-
-- Vector storage
-- Retrieval
-- Prompt augmentation
-- LLM integration
-- FastAPI
-- Observability
-
-## Documentation
-
-Detailed architectural discussions and engineering decisions can be found under the `docs/architecture` directory.
+```text
+PDF
+ ↓
+DocumentLoader
+ ↓
+PdfLoader
+ ↓
+Document
+ ↓
+DocumentChunker
+ ↓
+RecursiveDocumentChunker
+ ↓
+list[Chunk]
+ ↓
+ChunkEmbedder
+ ↓
+LocalChunkEmbedder
+ ↓
+all-MiniLM-L6-v2
+ ↓
+list[EmbeddedChunk]
