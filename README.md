@@ -1,7 +1,3 @@
-
-Replace your complete `README.md` with:
-
-```markdown
 # RAG Engine
 
 A production-oriented Retrieval-Augmented Generation (RAG) engine built from scratch to understand every architectural layer behind modern AI applications.
