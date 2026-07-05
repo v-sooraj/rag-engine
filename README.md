@@ -1,3 +1,7 @@
+
+Replace your complete `README.md` with:
+
+```markdown
 # RAG Engine
 
 A production-oriented Retrieval-Augmented Generation (RAG) engine built from scratch to understand every architectural layer behind modern AI applications.
@@ -13,6 +17,7 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 - Python
 - PostgreSQL
 - pgvector
+- Psycopg
 - Docker
 - uv
 - Pydantic Settings
@@ -53,3 +58,9 @@ LocalChunkEmbedder
 all-MiniLM-L6-v2
  ↓
 list[EmbeddedChunk]
+ ↓
+VectorStore
+ ↓
+PostgresVectorStore
+ ↓
+PostgreSQL + pgvector
