@@ -89,59 +89,50 @@ PostgresVectorStore
 PostgreSQL + pgvector
 ```
 
-### Retrieval Pipeline
+### Online RAG Pipeline
 
 ```text
 User Query
- ↓
+    ↓
+RAGPipeline
+    ↓
+DefaultRAGPipeline
+    ↓
 QueryEmbedder
- ↓
+    ↓
 LocalQueryEmbedder
- ↓
-all-MiniLM-L6-v2
- ↓
+    ↓
 Query Embedding
- ↓
+    ↓
 Retriever
- ↓
+    ↓
 PostgresRetriever
- ↓
-pgvector Cosine-Distance Search
- ↓
+    ↓
 Top-K Retrieved Chunks
-```
-
-### Prompt Augmentation Pipeline
-
-```text
-User Query
-        +
-Top-K Retrieved Chunks
-        ↓
+    ↓
 PromptAugmenter
-        ↓
+    ↓
 DefaultPromptAugmenter
-        ↓
-AugmentedPrompt
-├── system_instruction
-├── context
-└── question
-```
-
-### LLM Generation Pipeline
-
-```text
+    ↓
 AugmentedPrompt
     ↓
 LLM
     ↓
 OllamaLLM
     ↓
-HTTP
-    ↓
 Ollama
     ↓
 qwen3:4b
+    ↓
+GeneratedAnswer
+```
+
+From the application caller's perspective:
+
+```text
+User Query
+    ↓
+RAGPipeline.answer()
     ↓
 GeneratedAnswer
 ```
@@ -166,11 +157,12 @@ GeneratedAnswer
 - Vector similarity retrieval
 - Prompt augmentation
 - Local LLM integration
+- RAG pipeline orchestration
 - Complete real RAG generation pipeline
 
 ### 🚧 In Progress
 
-- RAG pipeline orchestration
+- API exposure
 
 ### 📋 Planned
 
@@ -227,8 +219,16 @@ The project currently supports:
 - synchronous non-streaming generation
 - LLM-specific error translation
 - response validation
+- dedicated RAG pipeline abstraction
+- default online RAG orchestration
+- constructor injection of pipeline capabilities
+- pipeline-level retrieval depth configuration
+- fail-fast pipeline input validation
+- fail-fast pipeline configuration validation
+- unchanged stage-specific failure propagation
+- zero-result retrieval continuation
 - real local LLM integration testing
-- complete real query-to-answer RAG pipeline testing
+- complete real query-to-answer orchestration testing
 
 ---
 
@@ -277,35 +277,25 @@ User Query
                        GeneratedAnswer
 ```
 
-The system can now:
+The complete online flow is coordinated by:
 
 ```text
-store knowledge
+RAGPipeline
 ```
 
-then:
+The caller now performs:
 
-```text
-retrieve semantically relevant knowledge
+```python
+answer = pipeline.answer(query)
 ```
 
-then:
-
-```text
-construct structured grounded model input
-```
-
-then:
-
-```text
-generate an answer using a local LLM
-```
+rather than manually coordinating every stage.
 
 ---
 
 ## Domain Flow
 
-The core domain models now form the following pipeline:
+The ingestion domain flow is:
 
 ```text
 Document
@@ -317,7 +307,7 @@ EmbeddedChunk
 Stored Vector
 ```
 
-and:
+The online domain flow is:
 
 ```text
 User Query
@@ -331,7 +321,203 @@ AugmentedPrompt
 GeneratedAnswer
 ```
 
+The application-level flow is:
+
+```text
+str
+    ↓
+RAGPipeline
+    ↓
+GeneratedAnswer
+```
+
 Each major pipeline boundary preserves meaningful structure rather than collapsing application concepts into primitive values too early.
+
+---
+
+## RAG Pipeline Orchestration
+
+The application-level capability is:
+
+```text
+RAGPipeline
+    ↑
+DefaultRAGPipeline
+```
+
+The public operation is:
+
+```text
+answer(query)
+```
+
+The internal sequence is:
+
+```text
+validate query
+    ↓
+QueryEmbedder
+    ↓
+Retriever
+    ↓
+PromptAugmenter
+    ↓
+LLM
+    ↓
+GeneratedAnswer
+```
+
+The caller does not need to know about:
+
+- query embeddings
+- retrieval implementation
+- retrieval depth
+- retrieved chunk models
+- prompt construction
+- model invocation
+
+---
+
+## Pipeline Dependencies
+
+`DefaultRAGPipeline` receives:
+
+```text
+QueryEmbedder
+Retriever
+PromptAugmenter
+LLM
+top_k
+```
+
+through constructor injection.
+
+The pipeline depends on capability abstractions rather than concrete infrastructure implementations.
+
+The current composition is:
+
+```text
+DefaultRAGPipeline
+├── LocalQueryEmbedder
+├── PostgresRetriever
+├── DefaultPromptAugmenter
+├── OllamaLLM
+└── top_k
+```
+
+---
+
+## Retrieval Configuration
+
+The retrieval depth is configured when the pipeline is created:
+
+```python
+pipeline = DefaultRAGPipeline(
+    query_embedder=query_embedder,
+    retriever=retriever,
+    prompt_augmenter=prompt_augmenter,
+    llm=llm,
+    top_k=3,
+)
+```
+
+The caller then uses:
+
+```python
+answer = pipeline.answer(query)
+```
+
+The ordinary query operation does not expose vector retrieval strategy.
+
+---
+
+## Pipeline Validation
+
+The pipeline rejects:
+
+```text
+empty query
+blank query
+```
+
+before calling any dependency.
+
+The pipeline also rejects invalid configuration:
+
+```text
+top_k <= 0
+```
+
+The rule is:
+
+```text
+top_k > 0
+```
+
+This keeps invalid input and invalid configuration from entering pipeline execution.
+
+---
+
+## Pipeline Failure Behavior
+
+`DefaultRAGPipeline` does not wrap stage-specific failures.
+
+Failures from:
+
+```text
+QueryEmbedder
+Retriever
+PromptAugmenter
+LLM
+```
+
+propagate unchanged.
+
+For example:
+
+```text
+Ollama unavailable
+    ↓
+OllamaLLM
+    ↓
+LLMGenerationError
+    ↓
+RAGPipeline
+    ↓
+caller receives LLMGenerationError
+```
+
+The orchestration layer does not introduce a generic `RAGPipelineError`.
+
+---
+
+## Empty Retrieval Behavior
+
+If retrieval returns no chunks:
+
+```text
+Retriever
+    ↓
+[]
+```
+
+the pipeline continues:
+
+```text
+[]
+    ↓
+PromptAugmenter
+    ↓
+AugmentedPrompt with empty context
+    ↓
+LLM
+    ↓
+GeneratedAnswer
+```
+
+The orchestrator does not create a separate hard-coded fallback answer.
+
+Grounding behavior remains owned by the prompt and generation stages.
 
 ---
 
@@ -467,34 +653,12 @@ OLLAMA_TIMEOUT_SECONDS=300
 
 ---
 
-## Error Handling
-
-LLM generation exposes one application-level failure:
-
-```text
-LLMGenerationError
-```
-
-Infrastructure failures such as:
-
-- connection errors
-- timeouts
-- non-success HTTP responses
-- malformed model responses
-- empty generated content
-
-are translated into the LLM-specific application exception.
-
-The original failure is preserved as the exception cause for debugging.
-
----
-
 ## Testing
 
 The project currently has:
 
 ```text
-82 tests passing
+96 tests passing
 ```
 
 The test suite includes:
@@ -514,8 +678,46 @@ The test suite includes:
 - prompt augmentation tests
 - generated answer tests
 - mocked Ollama HTTP tests
+- RAG pipeline orchestration tests
 - real Ollama integration tests
 - complete pipeline integration tests
+
+---
+
+## Orchestration Test Coverage
+
+The RAG pipeline unit tests prove:
+
+```text
+Happy Path
+├── query is embedded
+├── configured top_k is used
+├── retrieved chunks are passed forward
+├── original query is preserved
+├── augmented prompt is passed to the LLM
+└── GeneratedAnswer is returned unchanged
+```
+
+```text
+Boundary Validation
+├── empty query rejected
+├── blank query rejected
+├── zero top_k rejected
+└── negative top_k rejected
+```
+
+```text
+Behavior
+└── zero retrieved chunks continue through the pipeline
+```
+
+```text
+Failure Semantics
+├── QueryEmbedder failure propagates unchanged
+├── Retriever failure propagates unchanged
+├── PromptAugmenter failure propagates unchanged
+└── LLM failure propagates unchanged
+```
 
 ---
 
@@ -535,22 +737,6 @@ Embeddings
 PostgreSQL + pgvector
 ```
 
-The retrieval and augmentation coverage proves:
-
-```text
-Real Query
- ↓
-Query Embedding
- ↓
-Semantic Retrieval
- ↓
-Retrieved Chunks
- ↓
-Prompt Augmentation
- ↓
-AugmentedPrompt
-```
-
 The generation coverage proves:
 
 ```text
@@ -567,27 +753,31 @@ qwen3:4b
 GeneratedAnswer
 ```
 
-The complete real RAG test proves:
+The complete real RAG test now proves the application-level operation:
 
 ```text
 Stored Knowledge
-    ↓
-Local Embeddings
     ↓
 PostgreSQL + pgvector
 
 User Query
     ↓
-Query Embedding
+DefaultRAGPipeline.answer(query)
     ↓
-Semantic Retrieval
+LocalQueryEmbedder
     ↓
-Prompt Augmentation
+PostgresRetriever
     ↓
-Local LLM Generation
+DefaultPromptAugmenter
+    ↓
+OllamaLLM
+    ↓
+qwen3:4b
     ↓
 GeneratedAnswer
 ```
+
+The online stages are no longer manually coordinated inside the integration test.
 
 ---
 
@@ -604,6 +794,7 @@ QueryEmbedder
 Retriever
 PromptAugmenter
 LLM
+RAGPipeline
 ```
 
 Their concrete implementations are:
@@ -640,9 +831,13 @@ DefaultPromptAugmenter
 LLM
     ↑
 OllamaLLM
+
+RAGPipeline
+    ↑
+DefaultRAGPipeline
 ```
 
-This keeps the RAG pipeline organized around capabilities rather than framework-specific components.
+This keeps the RAG engine organized around capabilities rather than framework-specific components.
 
 ---
 
@@ -664,6 +859,7 @@ Architecture documents cover the incremental implementation of:
 - retrieval
 - prompt augmentation
 - LLM integration
+- RAG pipeline orchestration
 
 ADRs document the major architectural decisions made while building the RAG engine from scratch.
 
@@ -671,68 +867,86 @@ ADRs document the major architectural decisions made while building the RAG engi
 
 ## Core RAG Pipeline Status
 
-The core RAG capabilities are now complete:
+The core online RAG pipeline is now complete and orchestrated:
 
 ```text
-Load
- ↓
-Chunk
+Query
  ↓
 Embed
- ↓
-Store
  ↓
 Retrieve
  ↓
 Augment
  ↓
 Generate
+ ↓
+Answer
 ```
 
-However, the complete online flow is currently composed manually in integration tests.
-
-The application does not yet expose one capability such as:
+The public application operation is:
 
 ```text
-answer(query)
+RAGPipeline.answer(query)
 ```
 
-that coordinates:
+The system can now:
 
 ```text
-QueryEmbedder
- ↓
-Retriever
- ↓
-PromptAugmenter
- ↓
-LLM
+store knowledge
 ```
+
+then:
+
+```text
+receive a user question
+```
+
+then:
+
+```text
+retrieve semantically relevant knowledge
+```
+
+then:
+
+```text
+construct grounded model input
+```
+
+then:
+
+```text
+generate an answer using a local LLM
+```
+
+through one application-level pipeline boundary.
 
 ---
 
 ## Next Phase
 
-The next sprint will introduce RAG pipeline orchestration:
-
-```text
-User Query
-    ↓
-RAG Pipeline
-    ├── QueryEmbedder
-    ├── Retriever
-    ├── PromptAugmenter
-    └── LLM
-    ↓
-GeneratedAnswer
-```
+The next sprint will expose the completed RAG pipeline through an HTTP API.
 
 The next stage will decide:
 
-- the orchestration abstraction boundary
-- whether orchestration returns `GeneratedAnswer` directly
-- how `top_k` enters the pipeline
-- how pipeline dependencies are composed
-- how the current manually assembled integration flow becomes one application-level operation
+- the FastAPI application boundary
+- request and response API models
+- how application dependencies are composed
+- where pipeline configuration is created
+- how `RAGPipeline` is injected into the API layer
+- how application failures map to HTTP responses
+- which endpoint exposes question answering
 
-After orchestration, the complete online RAG pipeline will be ready to expose through FastAPI.
+The target flow is:
+
+```text
+HTTP Request
+    ↓
+FastAPI
+    ↓
+RAGPipeline.answer(query)
+    ↓
+GeneratedAnswer
+    ↓
+HTTP Response
+```
