@@ -11,6 +11,8 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 ## Tech Stack
 
 - Python
+- FastAPI
+- Uvicorn
 - PostgreSQL
 - pgvector
 - Psycopg
@@ -34,6 +36,7 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 6. Install and start Ollama.
 7. Pull the configured local LLM.
 8. Run the test suite.
+9. Start the API.
 
 Example model setup:
 
@@ -51,6 +54,70 @@ Run the test suite:
 
 ```bash
 uv run pytest -v
+```
+
+Start the API:
+
+```bash
+uv run uvicorn rag_engine.api.app:app --reload
+```
+
+The API runs by default at:
+
+```text
+http://127.0.0.1:8000
+```
+
+Interactive API documentation is available at:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+The OpenAPI schema is available at:
+
+```text
+http://127.0.0.1:8000/openapi.json
+```
+
+---
+
+## API Usage
+
+The API currently exposes:
+
+```text
+POST /answers
+```
+
+Example request:
+
+```json
+{
+  "query": "What do vector databases store?"
+}
+```
+
+Example response:
+
+```json
+{
+  "answer": "Vector databases store embeddings."
+}
+```
+
+The runtime flow is:
+
+```text
+HTTP Request
+    ↓
+FastAPI
+    ↓
+RAGPipeline.answer(query)
+    ↓
+GeneratedAnswer
+    ↓
+HTTP Response
 ```
 
 ---
@@ -127,6 +194,26 @@ qwen3:4b
 GeneratedAnswer
 ```
 
+### HTTP API
+
+```text
+HTTP Client
+    ↓
+POST /answers
+    ↓
+FastAPI
+    ↓
+AnswerRequest
+    ↓
+RAGPipeline
+    ↓
+GeneratedAnswer
+    ↓
+AnswerResponse
+    ↓
+HTTP Client
+```
+
 From the application caller's perspective:
 
 ```text
@@ -135,6 +222,14 @@ User Query
 RAGPipeline.answer()
     ↓
 GeneratedAnswer
+```
+
+From the HTTP client's perspective:
+
+```text
+POST /answers
+    ↓
+HTTP Response
 ```
 
 ---
@@ -159,15 +254,20 @@ GeneratedAnswer
 - Local LLM integration
 - RAG pipeline orchestration
 - Complete real RAG generation pipeline
+- FastAPI exposure
+- Application composition root
+- HTTP dependency injection
+- API request validation
+- OpenAPI documentation
+- Real API runtime verification
 
 ### 🚧 In Progress
 
-- API exposure
+- Observability
 
 ### 📋 Planned
 
-- FastAPI
-- Observability
+- Production visibility and diagnostics
 
 ---
 
@@ -193,7 +293,7 @@ The project currently supports:
 - database-backed chunk and vector integrity constraints
 - dedicated query embedding abstraction
 - local query embedding using `all-MiniLM-L6-v2`
-- shared embedding model instances across chunk and query embedding capabilities
+- shared embedding model instances across embedding capabilities
 - immutable retrieval result domain models
 - configurable top-k vector retrieval
 - cosine-distance search using pgvector
@@ -227,8 +327,18 @@ The project currently supports:
 - fail-fast pipeline configuration validation
 - unchanged stage-specific failure propagation
 - zero-result retrieval continuation
+- dedicated FastAPI inbound adapter
+- explicit application composition root
+- application-scoped RAG pipeline reuse
+- FastAPI dependency injection
+- test-time dependency overrides
+- dedicated API request and response models
+- HTTP request validation
+- generated Swagger UI
+- generated OpenAPI schema
 - real local LLM integration testing
 - complete real query-to-answer orchestration testing
+- real HTTP-to-RAG runtime verification
 
 ---
 
@@ -275,6 +385,12 @@ User Query
                           qwen3:4b
                               ↓
                        GeneratedAnswer
+
+                        HTTP EXPOSURE
+                              ↓
+                        AnswerResponse
+                              ↓
+                         HTTP Client
 ```
 
 The complete online flow is coordinated by:
@@ -283,13 +399,17 @@ The complete online flow is coordinated by:
 RAGPipeline
 ```
 
-The caller now performs:
+The Python caller performs:
 
 ```python
 answer = pipeline.answer(query)
 ```
 
-rather than manually coordinating every stage.
+The HTTP caller performs:
+
+```text
+POST /answers
+```
 
 ---
 
@@ -331,7 +451,19 @@ RAGPipeline
 GeneratedAnswer
 ```
 
-Each major pipeline boundary preserves meaningful structure rather than collapsing application concepts into primitive values too early.
+The HTTP flow is:
+
+```text
+AnswerRequest
+    ↓
+RAGPipeline
+    ↓
+GeneratedAnswer
+    ↓
+AnswerResponse
+```
+
+Each major boundary preserves meaningful structure rather than collapsing application concepts into primitive values too early.
 
 ---
 
@@ -378,146 +510,231 @@ The caller does not need to know about:
 
 ---
 
-## Pipeline Dependencies
+## API Architecture
 
-`DefaultRAGPipeline` receives:
+The API is a top-level inbound adapter:
 
 ```text
-QueryEmbedder
-Retriever
-PromptAugmenter
-LLM
-top_k
+rag_engine/
+├── api/
+├── composition/
+├── rag_pipeline/
+└── core capability packages/
 ```
 
-through constructor injection.
+The dependency direction is:
 
-The pipeline depends on capability abstractions rather than concrete infrastructure implementations.
+```text
+HTTP Client
+    ↓
+API
+    ↓
+RAGPipeline
+```
 
-The current composition is:
+The RAG pipeline does not depend on FastAPI.
+
+---
+
+## API Endpoint
+
+The question-answering endpoint is:
+
+```text
+POST /answers
+```
+
+The endpoint flow is:
+
+```text
+AnswerRequest
+    ↓
+query
+    ↓
+RAGPipeline.answer(query)
+    ↓
+GeneratedAnswer
+    ↓
+AnswerResponse
+```
+
+The route does not know about:
+
+- sentence-transformers
+- PostgreSQL
+- pgvector
+- retrieval
+- prompt augmentation
+- Ollama
+
+The API exposes the capability that already exists.
+
+---
+
+## API Validation
+
+The HTTP boundary rejects:
+
+```text
+missing query
+empty query
+blank query
+null query
+non-string query
+```
+
+Invalid requests return:
+
+```text
+422 Unprocessable Entity
+```
+
+The pipeline retains its own application-level validation.
+
+The two boundaries protect different contracts:
+
+```text
+API
+└── HTTP request contract
+```
+
+```text
+RAGPipeline
+└── application operation contract
+```
+
+---
+
+## Application Composition
+
+The application composition root constructs:
+
+```text
+SentenceTransformer
+    ↓
+LocalQueryEmbedder
+```
+
+```text
+PostgresRetriever
+```
+
+```text
+DefaultPromptAugmenter
+```
+
+```text
+OllamaLLM
+```
+
+and combines them into:
 
 ```text
 DefaultRAGPipeline
-├── LocalQueryEmbedder
-├── PostgresRetriever
-├── DefaultPromptAugmenter
-├── OllamaLLM
-└── top_k
 ```
 
----
-
-## Retrieval Configuration
-
-The retrieval depth is configured when the pipeline is created:
-
-```python
-pipeline = DefaultRAGPipeline(
-    query_embedder=query_embedder,
-    retriever=retriever,
-    prompt_augmenter=prompt_augmenter,
-    llm=llm,
-    top_k=3,
-)
-```
-
-The caller then uses:
-
-```python
-answer = pipeline.answer(query)
-```
-
-The ordinary query operation does not expose vector retrieval strategy.
-
----
-
-## Pipeline Validation
-
-The pipeline rejects:
+The separation is:
 
 ```text
-empty query
-blank query
+Composition Root
+└── choose and construct concrete implementations
 ```
 
-before calling any dependency.
-
-The pipeline also rejects invalid configuration:
-
 ```text
-top_k <= 0
-```
-
-The rule is:
-
-```text
-top_k > 0
-```
-
-This keeps invalid input and invalid configuration from entering pipeline execution.
-
----
-
-## Pipeline Failure Behavior
-
-`DefaultRAGPipeline` does not wrap stage-specific failures.
-
-Failures from:
-
-```text
-QueryEmbedder
-Retriever
-PromptAugmenter
-LLM
-```
-
-propagate unchanged.
-
-For example:
-
-```text
-Ollama unavailable
-    ↓
-OllamaLLM
-    ↓
-LLMGenerationError
-    ↓
 RAGPipeline
-    ↓
-caller receives LLMGenerationError
+└── orchestrate capabilities
 ```
 
-The orchestration layer does not introduce a generic `RAGPipelineError`.
+```text
+API
+└── adapt HTTP
+```
 
 ---
 
-## Empty Retrieval Behavior
+## Pipeline Lifecycle
 
-If retrieval returns no chunks:
+The real RAG pipeline is created once and reused.
 
-```text
-Retriever
-    ↓
-[]
-```
-
-the pipeline continues:
+The lifecycle is:
 
 ```text
-[]
+First Dependency Resolution
     ↓
-PromptAugmenter
+Construct Application Object Graph
     ↓
-AugmentedPrompt with empty context
-    ↓
-LLM
-    ↓
-GeneratedAnswer
+Cache RAGPipeline
 ```
 
-The orchestrator does not create a separate hard-coded fallback answer.
+Later requests perform:
 
-Grounding behavior remains owned by the prompt and generation stages.
+```text
+Dependency Resolution
+    ↓
+Reuse Existing RAGPipeline
+```
+
+The local embedding model is not loaded for every request.
+
+---
+
+## FastAPI Dependency Injection
+
+The route receives:
+
+```text
+RAGPipeline
+```
+
+through FastAPI dependency injection.
+
+Production:
+
+```text
+Endpoint
+    ↓
+get_rag_pipeline()
+    ↓
+Composition Root
+    ↓
+Real RAGPipeline
+```
+
+Tests:
+
+```text
+TestClient
+    ↓
+Dependency Override
+    ↓
+Mock RAGPipeline
+```
+
+This keeps API tests independent of real infrastructure.
+
+---
+
+## API Error Behavior
+
+The current API behavior is intentionally minimal.
+
+Invalid request:
+
+```text
+HTTP validation failure
+    ↓
+422
+```
+
+Unexpected pipeline failure:
+
+```text
+Application failure
+    ↓
+500
+```
+
+Detailed exception-to-HTTP mapping is deferred until the application has a concrete operational error contract.
 
 ---
 
@@ -658,7 +875,7 @@ OLLAMA_TIMEOUT_SECONDS=300
 The project currently has:
 
 ```text
-96 tests passing
+106 tests passing
 ```
 
 The test suite includes:
@@ -679,44 +896,57 @@ The test suite includes:
 - generated answer tests
 - mocked Ollama HTTP tests
 - RAG pipeline orchestration tests
+- API application tests
+- API request validation tests
+- API dependency override tests
+- API failure behavior tests
 - real Ollama integration tests
 - complete pipeline integration tests
 
 ---
 
-## Orchestration Test Coverage
+## API Test Coverage
 
-The RAG pipeline unit tests prove:
+The API tests prove:
 
 ```text
-Happy Path
-├── query is embedded
-├── configured top_k is used
-├── retrieved chunks are passed forward
-├── original query is preserved
-├── augmented prompt is passed to the LLM
-└── GeneratedAnswer is returned unchanged
+Application
+├── Swagger UI available
+└── OpenAPI schema available
 ```
 
 ```text
-Boundary Validation
-├── empty query rejected
-├── blank query rejected
-├── zero top_k rejected
-└── negative top_k rejected
+Successful Request
+├── accepts query
+├── calls RAGPipeline exactly once
+├── passes original query
+└── maps GeneratedAnswer to HTTP response
 ```
 
 ```text
-Behavior
-└── zero retrieved chunks continue through the pipeline
+Request Validation
+├── missing query → 422
+├── empty query → 422
+├── blank query → 422
+├── null query → 422
+└── non-string query → 422
 ```
 
 ```text
-Failure Semantics
-├── QueryEmbedder failure propagates unchanged
-├── Retriever failure propagates unchanged
-├── PromptAugmenter failure propagates unchanged
-└── LLM failure propagates unchanged
+Unexpected Failure
+└── pipeline failure → 500
+```
+
+The API test suite contains:
+
+```text
+10 tests
+```
+
+The complete suite contains:
+
+```text
+106 tests
 ```
 
 ---
@@ -753,7 +983,7 @@ qwen3:4b
 GeneratedAnswer
 ```
 
-The complete real RAG test now proves the application-level operation:
+The complete RAG integration coverage proves:
 
 ```text
 Stored Knowledge
@@ -777,7 +1007,83 @@ qwen3:4b
 GeneratedAnswer
 ```
 
-The online stages are no longer manually coordinated inside the integration test.
+The real API smoke test proves:
+
+```text
+HTTP Request
+    ↓
+FastAPI
+    ↓
+Real Composition Root
+    ↓
+Real RAGPipeline
+    ↓
+PostgreSQL + pgvector
+    ↓
+Ollama
+    ↓
+HTTP Response
+```
+
+---
+
+## Real API Verification
+
+The API was started using:
+
+```bash
+uv run uvicorn rag_engine.api.app:app --reload
+```
+
+A real request was sent to:
+
+```text
+POST /answers
+```
+
+using:
+
+```json
+{
+  "query": "What do vector databases store?"
+}
+```
+
+The real response was:
+
+```json
+{
+  "answer": "The provided context is empty. I do not have enough information to answer the question."
+}
+```
+
+The database contained no relevant context for the question.
+
+The result proved:
+
+```text
+HTTP
+ ↓
+FastAPI
+ ↓
+Composition
+ ↓
+RAGPipeline
+ ↓
+Query Embedding
+ ↓
+Retrieval
+ ↓
+Empty Context
+ ↓
+Prompt Augmentation
+ ↓
+Ollama
+ ↓
+Grounded Insufficient-Information Answer
+ ↓
+HTTP Response
+```
 
 ---
 
@@ -795,6 +1101,7 @@ Retriever
 PromptAugmenter
 LLM
 RAGPipeline
+HTTP API
 ```
 
 Their concrete implementations are:
@@ -837,7 +1144,9 @@ RAGPipeline
 DefaultRAGPipeline
 ```
 
-This keeps the RAG engine organized around capabilities rather than framework-specific components.
+The HTTP API is an inbound adapter around the application capability.
+
+The composition root owns concrete object construction.
 
 ---
 
@@ -860,14 +1169,31 @@ Architecture documents cover the incremental implementation of:
 - prompt augmentation
 - LLM integration
 - RAG pipeline orchestration
+- API exposure
 
 ADRs document the major architectural decisions made while building the RAG engine from scratch.
 
 ---
 
-## Core RAG Pipeline Status
+## Core RAG Application Status
 
-The core online RAG pipeline is now complete and orchestrated:
+The core RAG application is now complete and externally accessible.
+
+The ingestion path is:
+
+```text
+Document
+ ↓
+Load
+ ↓
+Chunk
+ ↓
+Embed
+ ↓
+Store
+```
+
+The online path is:
 
 ```text
 Query
@@ -883,10 +1209,16 @@ Generate
 Answer
 ```
 
-The public application operation is:
+The application operation is:
 
 ```text
 RAGPipeline.answer(query)
+```
+
+The external operation is:
+
+```text
+POST /answers
 ```
 
 The system can now:
@@ -898,7 +1230,7 @@ store knowledge
 then:
 
 ```text
-receive a user question
+receive a question over HTTP
 ```
 
 then:
@@ -919,34 +1251,47 @@ then:
 generate an answer using a local LLM
 ```
 
-through one application-level pipeline boundary.
+then:
+
+```text
+return the answer as an HTTP response
+```
 
 ---
 
 ## Next Phase
 
-The next sprint will expose the completed RAG pipeline through an HTTP API.
+The next sprint will focus on observability.
 
-The next stage will decide:
+The next stage should decide how to make the runtime pipeline visible without coupling core capabilities to one monitoring backend.
 
-- the FastAPI application boundary
-- request and response API models
-- how application dependencies are composed
-- where pipeline configuration is created
-- how `RAGPipeline` is injected into the API layer
-- how application failures map to HTTP responses
-- which endpoint exposes question answering
-
-The target flow is:
+The target is to gain visibility into:
 
 ```text
 HTTP Request
     ↓
-FastAPI
+RAG Pipeline
     ↓
-RAGPipeline.answer(query)
+Embedding
     ↓
-GeneratedAnswer
+Retrieval
+    ↓
+Prompt Augmentation
+    ↓
+LLM Generation
     ↓
 HTTP Response
 ```
+
+Potential observability concerns include:
+
+- structured logging
+- request correlation
+- pipeline timing
+- stage timing
+- retrieval result counts
+- retrieval distances
+- LLM latency
+- failure visibility
+
+The next sprint should introduce only the observability signals that provide real value and preserve the current architectural boundaries.
