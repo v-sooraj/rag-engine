@@ -5,6 +5,7 @@ description = "A production-oriented Retrieval-Augmented Generation (RAG) engine
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "httpx>=0.28.1",
     "psycopg[binary]>=3.3.4",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
