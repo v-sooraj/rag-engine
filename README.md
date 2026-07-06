@@ -19,6 +19,9 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 - Pydantic Settings
 - PyMuPDF
 - sentence-transformers
+- httpx
+- Ollama
+- qwen3:4b
 - pytest
 
 ## Getting Started
@@ -28,7 +31,29 @@ A production-oriented Retrieval-Augmented Generation (RAG) engine built from scr
 3. Copy `docker/.env.example` to `docker/.env`.
 4. Update the configuration values.
 5. Start PostgreSQL using Docker Compose.
-6. Run the test suite.
+6. Install and start Ollama.
+7. Pull the configured local LLM.
+8. Run the test suite.
+
+Example model setup:
+
+```bash
+ollama pull qwen3:4b
+```
+
+Verify the model is available:
+
+```bash
+ollama list
+```
+
+Run the test suite:
+
+```bash
+uv run pytest -v
+```
+
+---
 
 ## Current Architecture
 
@@ -103,6 +128,26 @@ AugmentedPrompt
 └── question
 ```
 
+### LLM Generation Pipeline
+
+```text
+AugmentedPrompt
+    ↓
+LLM
+    ↓
+OllamaLLM
+    ↓
+HTTP
+    ↓
+Ollama
+    ↓
+qwen3:4b
+    ↓
+GeneratedAnswer
+```
+
+---
+
 ## Current Status
 
 ### ✅ Completed
@@ -120,16 +165,19 @@ AugmentedPrompt
 - Query embedding
 - Vector similarity retrieval
 - Prompt augmentation
+- Local LLM integration
+- Complete real RAG generation pipeline
 
 ### 🚧 In Progress
 
-- LLM integration
+- RAG pipeline orchestration
 
 ### 📋 Planned
 
-- RAG pipeline orchestration
 - FastAPI
 - Observability
+
+---
 
 ## Current Capabilities
 
@@ -168,9 +216,21 @@ The project currently supports:
 - retrieval ranking preservation during prompt augmentation
 - empty retrieval result handling
 - separation of retrieval metadata from LLM context
-- end-to-end ingestion pipeline tests
-- end-to-end semantic retrieval pipeline tests
-- end-to-end retrieval-to-prompt-augmentation pipeline tests
+- provider-independent LLM abstraction
+- immutable generated answer domain model
+- local model inference through Ollama
+- direct HTTP integration using `httpx`
+- configurable Ollama base URL
+- configurable local model
+- configurable generation timeout
+- structured prompt-to-chat-message mapping
+- synchronous non-streaming generation
+- LLM-specific error translation
+- response validation
+- real local LLM integration testing
+- complete real query-to-answer RAG pipeline testing
+
+---
 
 ## Complete Data Flow
 
@@ -199,13 +259,22 @@ User Query
                       Retrieved Chunks
                               ↓
                       Prompt Augmenter
-                              ↓
-                       AugmentedPrompt
-                    ┌─────────┼─────────┐
-                    ↓         ↓         ↓
-                 System    Context   Question
 
                     PROMPT AUGMENTATION
+                              ↓
+                       AugmentedPrompt
+                              ↓
+                             LLM
+
+                         GENERATION
+                              ↓
+                         OllamaLLM
+                              ↓
+                            Ollama
+                              ↓
+                          qwen3:4b
+                              ↓
+                       GeneratedAnswer
 ```
 
 The system can now:
@@ -223,12 +292,52 @@ retrieve semantically relevant knowledge
 then:
 
 ```text
-construct structured grounded input for an LLM
+construct structured grounded model input
 ```
+
+then:
+
+```text
+generate an answer using a local LLM
+```
+
+---
+
+## Domain Flow
+
+The core domain models now form the following pipeline:
+
+```text
+Document
+    ↓
+Chunk
+    ↓
+EmbeddedChunk
+    ↓
+Stored Vector
+```
+
+and:
+
+```text
+User Query
+    ↓
+Query Embedding
+    ↓
+RetrievedChunk
+    ↓
+AugmentedPrompt
+    ↓
+GeneratedAnswer
+```
+
+Each major pipeline boundary preserves meaningful structure rather than collapsing application concepts into primitive values too early.
+
+---
 
 ## Prompt Augmentation Output
 
-The current prompt augmentation stage produces:
+The prompt augmentation stage produces:
 
 ```text
 AugmentedPrompt
@@ -261,12 +370,131 @@ Application metadata such as:
 
 remains outside the LLM context.
 
+---
+
+## LLM Message Mapping
+
+The structured prompt maps to the local LLM as:
+
+```text
+system_instruction
+    ↓
+system message
+```
+
+and:
+
+```text
+context + question
+    ↓
+user message
+```
+
+The user message is formatted as:
+
+```text
+Context:
+{retrieved context}
+
+Question:
+{user question}
+```
+
+Retrieved evidence remains separate from trusted system instructions.
+
+---
+
+## Local LLM Infrastructure
+
+The generation architecture is:
+
+```text
+RAG Engine
+    ↓
+OllamaLLM
+    ↓
+httpx
+    ↓
+Ollama HTTP API
+    ↓
+qwen3:4b
+```
+
+The RAG engine owns:
+
+- prompt-to-message mapping
+- request construction
+- response validation
+- error translation
+
+Ollama owns:
+
+- model download
+- model loading
+- local inference
+- GPU utilization
+- runtime details
+
+---
+
+## Configuration
+
+PostgreSQL configuration uses:
+
+```text
+POSTGRES_HOST
+POSTGRES_PORT
+POSTGRES_DATABASE
+POSTGRES_USER
+POSTGRES_PASSWORD
+```
+
+Ollama configuration uses:
+
+```text
+OLLAMA_BASE_URL
+OLLAMA_MODEL_NAME
+OLLAMA_TIMEOUT_SECONDS
+```
+
+Example Ollama configuration:
+
+```text
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL_NAME=qwen3:4b
+OLLAMA_TIMEOUT_SECONDS=300
+```
+
+---
+
+## Error Handling
+
+LLM generation exposes one application-level failure:
+
+```text
+LLMGenerationError
+```
+
+Infrastructure failures such as:
+
+- connection errors
+- timeouts
+- non-success HTTP responses
+- malformed model responses
+- empty generated content
+
+are translated into the LLM-specific application exception.
+
+The original failure is preserved as the exception cause for debugging.
+
+---
+
 ## Testing
 
 The project currently has:
 
 ```text
-61 tests passing
+82 tests passing
 ```
 
 The test suite includes:
@@ -284,9 +512,16 @@ The test suite includes:
 - deterministic vector-ranking tests
 - semantic retrieval tests
 - prompt augmentation tests
+- generated answer tests
+- mocked Ollama HTTP tests
+- real Ollama integration tests
 - complete pipeline integration tests
 
-The integration coverage proves:
+---
+
+## Integration Coverage
+
+The ingestion integration coverage proves:
 
 ```text
 PDF
@@ -300,7 +535,7 @@ Embeddings
 PostgreSQL + pgvector
 ```
 
-and:
+The retrieval and augmentation coverage proves:
 
 ```text
 Real Query
@@ -316,6 +551,101 @@ Prompt Augmentation
 AugmentedPrompt
 ```
 
+The generation coverage proves:
+
+```text
+AugmentedPrompt
+ ↓
+OllamaLLM
+ ↓
+Real HTTP Request
+ ↓
+Ollama
+ ↓
+qwen3:4b
+ ↓
+GeneratedAnswer
+```
+
+The complete real RAG test proves:
+
+```text
+Stored Knowledge
+    ↓
+Local Embeddings
+    ↓
+PostgreSQL + pgvector
+
+User Query
+    ↓
+Query Embedding
+    ↓
+Semantic Retrieval
+    ↓
+Prompt Augmentation
+    ↓
+Local LLM Generation
+    ↓
+GeneratedAnswer
+```
+
+---
+
+## Current Architectural Boundaries
+
+The project currently exposes the following major capabilities:
+
+```text
+DocumentLoader
+DocumentChunker
+ChunkEmbedder
+VectorStore
+QueryEmbedder
+Retriever
+PromptAugmenter
+LLM
+```
+
+Their concrete implementations are:
+
+```text
+DocumentLoader
+    ↑
+PdfLoader
+
+DocumentChunker
+    ↑
+RecursiveDocumentChunker
+
+ChunkEmbedder
+    ↑
+LocalChunkEmbedder
+
+VectorStore
+    ↑
+PostgresVectorStore
+
+QueryEmbedder
+    ↑
+LocalQueryEmbedder
+
+Retriever
+    ↑
+PostgresRetriever
+
+PromptAugmenter
+    ↑
+DefaultPromptAugmenter
+
+LLM
+    ↑
+OllamaLLM
+```
+
+This keeps the RAG pipeline organized around capabilities rather than framework-specific components.
+
+---
+
 ## Documentation
 
 Detailed architectural discussions and engineering decisions can be found under:
@@ -323,7 +653,7 @@ Detailed architectural discussions and engineering decisions can be found under:
 - `docs/architecture`
 - `docs/adr`
 
-Current architecture documents cover:
+Architecture documents cover the incremental implementation of:
 
 - project foundation
 - database connectivity
@@ -333,28 +663,76 @@ Current architecture documents cover:
 - vector storage
 - retrieval
 - prompt augmentation
+- LLM integration
 
-Current ADRs document the major architectural decisions made while building the RAG engine from scratch.
+ADRs document the major architectural decisions made while building the RAG engine from scratch.
+
+---
+
+## Core RAG Pipeline Status
+
+The core RAG capabilities are now complete:
+
+```text
+Load
+ ↓
+Chunk
+ ↓
+Embed
+ ↓
+Store
+ ↓
+Retrieve
+ ↓
+Augment
+ ↓
+Generate
+```
+
+However, the complete online flow is currently composed manually in integration tests.
+
+The application does not yet expose one capability such as:
+
+```text
+answer(query)
+```
+
+that coordinates:
+
+```text
+QueryEmbedder
+ ↓
+Retriever
+ ↓
+PromptAugmenter
+ ↓
+LLM
+```
+
+---
 
 ## Next Phase
 
-Sprint 09 will introduce LLM generation:
+The next sprint will introduce RAG pipeline orchestration:
 
 ```text
-AugmentedPrompt
+User Query
     ↓
-LLM
+RAG Pipeline
+    ├── QueryEmbedder
+    ├── Retriever
+    ├── PromptAugmenter
+    └── LLM
     ↓
-Generated Answer
+GeneratedAnswer
 ```
 
 The next stage will decide:
 
-- the LLM abstraction boundary
-- the generated answer domain model
-- how structured prompts map to model input
-- which model implementation to use
-- how insufficient-context behavior is tested
-- how generation remains independent of the rest of the RAG pipeline
+- the orchestration abstraction boundary
+- whether orchestration returns `GeneratedAnswer` directly
+- how `top_k` enters the pipeline
+- how pipeline dependencies are composed
+- how the current manually assembled integration flow becomes one application-level operation
 
-After Sprint 09, the system will be able to transform retrieved knowledge into a generated answer.
+After orchestration, the complete online RAG pipeline will be ready to expose through FastAPI.
