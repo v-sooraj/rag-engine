@@ -14,6 +14,9 @@ from rag_engine.prompt_augmentation.default_prompt_augmenter import (
 from rag_engine.query_embedding.local_query_embedder import (
     LocalQueryEmbedder,
 )
+from rag_engine.rag_pipeline.default_rag_pipeline import (
+    DefaultRAGPipeline,
+)
 from rag_engine.retrieval.postgres_retriever import PostgresRetriever
 from rag_engine.vector_store.postgres_vector_store import PostgresVectorStore
 
@@ -124,6 +127,14 @@ def test_complete_real_rag_generation_pipeline():
         timeout_seconds=settings.ollama.timeout_seconds,
     )
 
+    pipeline = DefaultRAGPipeline(
+        query_embedder=query_embedder,
+        retriever=retriever,
+        prompt_augmenter=prompt_augmenter,
+        llm=llm,
+        top_k=3,
+    )
+
     embedded_chunks = chunk_embedder.embed(
         chunks
     )
@@ -133,36 +144,10 @@ def test_complete_real_rag_generation_pipeline():
         chunks=embedded_chunks,
     )
 
-    query = (
-        "What do vector databases store?"
-    )
+    query = "What do vector databases store?"
 
     try:
-        query_embedding = query_embedder.embed(
-            query
-        )
-
-        retrieved_chunks = retriever.retrieve(
-            query_embedding=query_embedding,
-            top_k=3,
-        )
-
-        document_results = [
-            result
-            for result in retrieved_chunks
-            if result.document_id == document_id
-        ]
-
-        assert document_results
-
-        augmented_prompt = prompt_augmenter.augment(
-            query=query,
-            chunks=document_results,
-        )
-
-        answer = llm.generate(
-            augmented_prompt
-        )
+        answer = pipeline.answer(query)
 
         assert answer.content
         assert answer.content.strip()
