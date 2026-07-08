@@ -33,6 +33,12 @@ from rag_engine.retrieval.postgres_retriever import (
 from rag_engine.vector_store.postgres_vector_store import (
     PostgresVectorStore,
 )
+from rag_engine.observability.observed_ingestion_pipeline import (
+    ObservedIngestionPipeline,
+)
+from rag_engine.observability.observed_rag_pipeline import (
+    ObservedRAGPipeline,
+)
 
 
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
@@ -61,7 +67,7 @@ def create_ingestion_pipeline() -> IngestionPipeline:
         model=embedding_model,
     )
 
-    return DefaultIngestionPipeline(
+    delegate = DefaultIngestionPipeline(
         document_loader=PdfLoader(),
         document_chunker=RecursiveDocumentChunker(
             chunk_size=CHUNK_SIZE,
@@ -69,6 +75,10 @@ def create_ingestion_pipeline() -> IngestionPipeline:
         ),
         chunk_embedder=chunk_embedder,
         vector_store=PostgresVectorStore(),
+    )
+
+    return ObservedIngestionPipeline(
+        delegate=delegate
     )
 
 
@@ -93,10 +103,14 @@ def create_rag_pipeline() -> RAGPipeline:
         ),
     )
 
-    return DefaultRAGPipeline(
+    delegate = DefaultRAGPipeline(
         query_embedder=query_embedder,
         retriever=retriever,
         prompt_augmenter=prompt_augmenter,
         llm=llm,
         top_k=DEFAULT_TOP_K,
+    )
+
+    return ObservedRAGPipeline(
+        delegate=delegate
     )
