@@ -230,6 +230,312 @@ A missing file returns:
 
 ---
 
+## Observability
+
+The application includes a first observability layer for:
+
+```text
+HTTP Requests
+```
+
+and:
+
+```text
+Application Operations
+```
+
+The runtime architecture is:
+
+```text
+HTTP Request
+    ↓
+RequestObservabilityMiddleware
+    ↓
+Observed Pipeline
+    ↓
+Default Pipeline
+    ↓
+Structured JSON Logs
+```
+
+The observability layer answers:
+
+```text
+What happened?
+```
+
+```text
+How long did it take?
+```
+
+```text
+Which request did it belong to?
+```
+
+---
+
+## HTTP Request Observability
+
+Every HTTP request is observed by:
+
+```text
+RequestObservabilityMiddleware
+```
+
+The middleware emits:
+
+```text
+http.request.started
+```
+
+```text
+http.request.completed
+```
+
+or:
+
+```text
+http.request.failed
+```
+
+A completed request includes:
+
+```text
+request_id
+method
+path
+status_code
+duration_ms
+```
+
+---
+
+## Request Correlation
+
+The application uses:
+
+```text
+X-Request-ID
+```
+
+for request correlation.
+
+If the client sends:
+
+```text
+X-Request-ID
+```
+
+the application reuses it.
+
+Otherwise:
+
+```text
+UUID
+```
+
+is generated.
+
+The resolved request ID is returned in the response:
+
+```text
+X-Request-ID
+```
+
+The request ID is propagated internally through:
+
+```text
+ContextVar
+```
+
+This allows pipeline events to include request correlation without changing application method signatures.
+
+---
+
+## Observed Application Pipelines
+
+The composed ingestion capability is:
+
+```text
+ObservedIngestionPipeline
+    ↓
+DefaultIngestionPipeline
+```
+
+The composed RAG capability is:
+
+```text
+ObservedRAGPipeline
+    ↓
+DefaultRAGPipeline
+```
+
+The decorators preserve:
+
+```text
+same input
+same output
+same exception
+```
+
+and add:
+
+```text
+start event
+completion event
+failure event
+duration
+request correlation
+```
+
+---
+
+## Ingestion Events
+
+The ingestion operation emits:
+
+```text
+ingestion.started
+```
+
+```text
+ingestion.completed
+```
+
+or:
+
+```text
+ingestion.failed
+```
+
+Operational fields may include:
+
+```text
+request_id
+document_filename
+document_id
+duration_ms
+exception_type
+```
+
+The full document path and document contents are not logged.
+
+---
+
+## RAG Events
+
+The RAG operation emits:
+
+```text
+rag.started
+```
+
+```text
+rag.completed
+```
+
+or:
+
+```text
+rag.failed
+```
+
+Operational fields may include:
+
+```text
+request_id
+duration_ms
+exception_type
+```
+
+The application does not log:
+
+```text
+user query
+retrieved context
+augmented prompt
+generated answer
+```
+
+by default.
+
+---
+
+## JSON Logs
+
+Logs are emitted as newline-delimited JSON to:
+
+```text
+stdout
+```
+
+Example:
+
+```json
+{
+  "timestamp": "2026-07-08T06:49:20.734598+00:00",
+  "level": "INFO",
+  "logger": "rag_engine.observability.observed_ingestion_pipeline",
+  "event": "ingestion.completed",
+  "request_id": "abc-123",
+  "document_id": "document-uuid",
+  "duration_ms": 5430.39
+}
+```
+
+The application is not coupled to a monitoring vendor.
+
+Deployment infrastructure can later collect stdout and forward it to a centralized logging system.
+
+---
+
+## Observability Privacy
+
+The application deliberately avoids logging:
+
+- document contents
+- chunk contents
+- embeddings
+- full document paths
+- user questions
+- retrieved context
+- augmented prompts
+- generated answers
+
+The current observability layer records operational metadata only.
+
+---
+
+## Observability Architecture
+
+The complete request flow is:
+
+```text
+HTTP Request
+    ↓
+http.request.started
+    ↓
+Application Operation
+    ↓
+ingestion.started / rag.started
+    ↓
+Default Pipeline
+    ↓
+ingestion.completed / rag.completed
+    ↓
+http.request.completed
+    ↓
+HTTP Response
+```
+
+All events belonging to the same HTTP request can be correlated using:
+
+```text
+request_id
+```
+
+---
+
 ## Upload Adaptation
 
 The ingestion pipeline accepts:
@@ -496,14 +802,19 @@ HTTP Response
 - HTTP upload adaptation
 - Original filename preservation
 - Real HTTP-to-pgvector ingestion verification
+- Application observability
+- HTTP request correlation
+- Structured JSON logging
+- Pipeline operation timing
 
 ### 🚧 In Progress
 
-- Observability
+- None
 
 ### 📋 Planned
 
-- Production visibility and diagnostics
+- Production hardening
+- Advanced observability
 
 ---
 
@@ -1808,65 +2119,70 @@ return the answer as an HTTP response
 
 ## Next Phase
 
-The application now has a complete external RAG lifecycle:
+The RAG engine now has a complete first product loop:
+
+```text
+Upload Knowledge
+    ↓
+Store Embeddings
+    ↓
+Ask Questions
+    ↓
+Retrieve Context
+    ↓
+Generate Grounded Answers
+    ↓
+Observe Runtime Execution
+```
+
+The application now supports:
 
 ```text
 POST /documents
-    ↓
-Knowledge Ingestion
 ```
-
-and:
 
 ```text
 POST /answers
-    ↓
-Grounded Question Answering
-```
-
-The next phase is observability.
-
-The target is to make the complete runtime flow visible:
-
-```text
-HTTP Request
-    ↓
-Pipeline Execution
-    ↓
-Retrieval
-    ↓
-LLM Generation
-    ↓
-HTTP Response
-```
-
-The next phase should introduce visibility into:
-
-- request execution
-- ingestion duration
-- retrieval duration
-- retrieved chunk count
-- similarity or distance information
-- LLM generation duration
-- pipeline failures
-- document ingestion failures
-
-Observability should not change the existing application contracts.
-
-The goal is to understand:
-
-```text
-what happened
-```
-
-```text
-how long it took
 ```
 
 and:
 
 ```text
-where it failed
+structured runtime observability
 ```
 
-without coupling the core pipeline to a specific external monitoring platform.
+The next phase should focus on production hardening rather than adding more pipeline features immediately.
+
+Potential areas include:
+
+- centralized error handling
+- API error contracts
+- configuration validation
+- file-size limits
+- content-based PDF validation
+- health and readiness endpoints
+- graceful application startup
+- graceful shutdown
+- ingestion idempotency behavior
+- document management APIs
+- deployment packaging
+
+Advanced observability can later introduce:
+
+```text
+metrics
+```
+
+```text
+stage-level timing
+```
+
+```text
+distributed tracing
+```
+
+```text
+dashboards
+```
+
+only when the application has a concrete operational need for them.

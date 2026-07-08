@@ -13,6 +13,12 @@ from rag_engine.ingestion_pipeline.ingestion_pipeline import (
 from rag_engine.rag_pipeline.rag_pipeline import (
     RAGPipeline,
 )
+from rag_engine.observability.observed_ingestion_pipeline import (
+    ObservedIngestionPipeline,
+)
+from rag_engine.observability.observed_rag_pipeline import (
+    ObservedRAGPipeline,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -295,3 +301,20 @@ def test_both_pipelines_receive_same_embedding_model(
     assert chunk_model is model
     assert query_model is model
     assert chunk_model is query_model
+
+def test_create_ingestion_pipeline_returns_observed_pipeline():
+    pipeline = create_ingestion_pipeline()
+
+    assert isinstance(
+        pipeline,
+        ObservedIngestionPipeline,
+    )
+
+
+def test_create_rag_pipeline_returns_observed_pipeline():
+    pipeline = create_rag_pipeline()
+
+    assert isinstance(
+        pipeline,
+        ObservedRAGPipeline,
+    )
