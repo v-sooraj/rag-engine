@@ -253,20 +253,19 @@ HTTP Response
 - Prompt augmentation
 - Local LLM integration
 - RAG pipeline orchestration
-- Complete real RAG generation pipeline
 - FastAPI exposure
 - Application composition root
-- HTTP dependency injection
-- API request validation
-- OpenAPI documentation
-- Real API runtime verification
+- Ingestion pipeline orchestration
+- Shared embedding model composition
+- Real end-to-end ingestion verification
 
 ### 🚧 In Progress
 
-- Observability
+- Document ingestion API
 
 ### 📋 Planned
 
+- Observability
 - Production visibility and diagnostics
 
 ---
@@ -507,6 +506,254 @@ The caller does not need to know about:
 - retrieved chunk models
 - prompt construction
 - model invocation
+
+---
+
+## Ingestion Pipeline Orchestration
+
+The application-level ingestion capability is:
+
+```text
+IngestionPipeline
+    ↑
+DefaultIngestionPipeline
+```
+
+The public operation is:
+
+```text
+ingest(path)
+```
+
+The internal sequence is:
+
+```text
+validate path
+    ↓
+DocumentLoader
+    ↓
+DocumentChunker
+    ↓
+ChunkEmbedder
+    ↓
+VectorStore
+    ↓
+Document UUID
+```
+
+The caller no longer manually coordinates the ingestion stages.
+
+The caller performs:
+
+```python
+document_id = ingestion_pipeline.ingest(
+    "path/to/document.pdf"
+)
+```
+
+The pipeline owns:
+
+- stage ordering
+- passing outputs between stages
+- input validation
+- returning the persisted document ID
+
+The pipeline does not own:
+
+- PDF parsing
+- chunking strategy
+- embedding implementation
+- database transactions
+- deduplication
+- idempotency
+
+These responsibilities remain inside the existing capabilities.
+
+---
+
+## Application Operations
+
+The application now exposes two primary operations.
+
+### Ingest Knowledge
+
+```text
+IngestionPipeline.ingest(path)
+```
+
+Flow:
+
+```text
+File Path
+ ↓
+Load
+ ↓
+Chunk
+ ↓
+Embed
+ ↓
+Store
+ ↓
+Document UUID
+```
+
+### Answer Questions
+
+```text
+RAGPipeline.answer(query)
+```
+
+Flow:
+
+```text
+Query
+ ↓
+Embed
+ ↓
+Retrieve
+ ↓
+Augment
+ ↓
+Generate
+ ↓
+GeneratedAnswer
+```
+
+The complete usage sequence is:
+
+```text
+Ingest Document
+    ↓
+Knowledge Stored in pgvector
+    ↓
+Ask Question
+    ↓
+Relevant Chunks Retrieved
+    ↓
+LLM Receives Context
+    ↓
+Grounded Answer
+```
+
+The composition root constructs both application capabilities independently.
+
+It does not automatically run ingestion before question answering.
+
+---
+
+## Shared Embedding Model
+
+The ingestion and online query flows use the same embedding model:
+
+```text
+all-MiniLM-L6-v2
+```
+
+The composition architecture is:
+
+```text
+                 Shared SentenceTransformer
+                      /              \
+                     ↓                ↓
+           LocalChunkEmbedder   LocalQueryEmbedder
+                     ↓                ↓
+          IngestionPipeline       RAGPipeline
+```
+
+The model is created once and reused.
+
+This avoids:
+
+- duplicate model loading
+- unnecessary memory usage
+- duplicate initialization
+
+It also ensures stored chunk embeddings and query embeddings use the same vector space.
+
+---
+
+## Application Composition
+
+The composition root now provides:
+
+```text
+create_embedding_model()
+```
+
+```text
+create_ingestion_pipeline()
+```
+
+```text
+create_rag_pipeline()
+```
+
+The responsibilities are:
+
+```text
+Composition Root
+└── construct application capabilities
+```
+
+```text
+IngestionPipeline
+└── execute document ingestion
+```
+
+```text
+RAGPipeline
+└── execute question answering
+```
+
+The composition root does not:
+
+- select a document
+- ingest a document
+- ask a question
+
+Runtime callers execute those operations.
+
+---
+
+## Current Ingestion Usage
+
+The ingestion capability currently accepts a filesystem path.
+
+Example:
+
+```python
+pipeline = create_ingestion_pipeline()
+
+document_id = pipeline.ingest(
+    "path/to/document.pdf"
+)
+```
+
+The path is supplied by the caller.
+
+The flow is:
+
+```text
+Caller
+ ↓
+File Path
+ ↓
+IngestionPipeline
+ ↓
+PdfLoader
+ ↓
+DocumentChunker
+ ↓
+ChunkEmbedder
+ ↓
+VectorStore
+ ↓
+PostgreSQL + pgvector
+```
+
+The ingestion pipeline is fully functional, but it does not yet have an external HTTP entry point.
+
+The next sprint will expose it through a document upload API.
 
 ---
 
@@ -1261,37 +1508,70 @@ return the answer as an HTTP response
 
 ## Next Phase
 
-The next sprint will focus on observability.
+The next sprint will expose document ingestion through an HTTP API.
 
-The next stage should decide how to make the runtime pipeline visible without coupling core capabilities to one monitoring backend.
-
-The target is to gain visibility into:
+The target flow is:
 
 ```text
-HTTP Request
+HTTP Client
     ↓
-RAG Pipeline
+POST /documents
     ↓
-Embedding
+Upload PDF
     ↓
-Retrieval
+Temporary File
     ↓
-Prompt Augmentation
+IngestionPipeline.ingest(path)
     ↓
-LLM Generation
+Load
+    ↓
+Chunk
+    ↓
+Embed
+    ↓
+Store
+    ↓
+Document UUID
     ↓
 HTTP Response
 ```
 
-Potential observability concerns include:
+After this sprint, the complete external application flow will be:
 
-- structured logging
-- request correlation
-- pipeline timing
-- stage timing
-- retrieval result counts
-- retrieval distances
-- LLM latency
-- failure visibility
+```text
+POST /documents
+    ↓
+Knowledge Stored
+```
 
-The next sprint should introduce only the observability signals that provide real value and preserve the current architectural boundaries.
+followed by:
+
+```text
+POST /answers
+    ↓
+Knowledge Retrieved
+    ↓
+Grounded Answer
+```
+
+The document upload API should remain a thin inbound adapter.
+
+It should own:
+
+- multipart file handling
+- temporary file lifecycle
+- HTTP validation
+- HTTP response mapping
+
+It should not own:
+
+- PDF loading
+- chunking
+- embedding
+- vector persistence
+
+Those responsibilities remain behind:
+
+```text
+IngestionPipeline
+```
