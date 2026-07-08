@@ -156,6 +156,241 @@ PostgresVectorStore
 PostgreSQL + pgvector
 ```
 
+## Document Ingestion API
+
+The application exposes:
+
+```text
+POST /documents
+```
+
+The endpoint accepts:
+
+```text
+multipart/form-data
+```
+
+with a PDF in the:
+
+```text
+file
+```
+
+field.
+
+The complete flow is:
+
+```text
+HTTP Client
+    ↓
+POST /documents
+    ↓
+UploadFile
+    ↓
+DocumentUploadAdapter
+    ↓
+Temporary Directory
+    ↓
+Temporary PDF Using Original Filename
+    ↓
+IngestionPipeline
+    ↓
+PostgreSQL + pgvector
+    ↓
+Document UUID
+    ↓
+201 Created
+```
+
+A successful response is:
+
+```json
+{
+  "document_id": "..."
+}
+```
+
+The route accepts:
+
+```text
+application/pdf
+```
+
+Unsupported media types return:
+
+```text
+415 Unsupported Media Type
+```
+
+A missing file returns:
+
+```text
+422 Unprocessable Entity
+```
+
+---
+
+## Upload Adaptation
+
+The ingestion pipeline accepts:
+
+```text
+filesystem path
+```
+
+while the HTTP API receives:
+
+```text
+UploadFile
+```
+
+The application bridges these representations through:
+
+```text
+DocumentUploadAdapter
+```
+
+The adapter owns:
+
+- temporary directory creation
+- uploaded byte copying
+- original filename preservation
+- filename sanitization
+- temporary resource cleanup
+
+The adapter does not own:
+
+- PDF parsing
+- chunking
+- embedding
+- vector storage
+
+Those responsibilities remain behind:
+
+```text
+IngestionPipeline
+```
+
+---
+
+## Temporary File Lifecycle
+
+Each upload creates a scoped temporary directory.
+
+For:
+
+```text
+sample.pdf
+```
+
+the temporary path is conceptually:
+
+```text
+<temporary-directory>/sample.pdf
+```
+
+The ingestion pipeline receives this path.
+
+After ingestion succeeds or fails:
+
+```text
+temporary file
+```
+
+and:
+
+```text
+temporary directory
+```
+
+are deleted automatically.
+
+---
+
+## Filename Preservation
+
+The original upload adapter design used a generated temporary filename.
+
+This caused:
+
+```text
+sample.pdf
+```
+
+to become:
+
+```text
+tmp2l9m66ua.pdf
+```
+
+inside persisted document metadata.
+
+The final design preserves the original filename:
+
+```text
+sample.pdf
+    ↓
+<temporary-directory>/sample.pdf
+    ↓
+PdfLoader
+    ↓
+DocumentMetadata.filename = sample.pdf
+```
+
+The filename is sanitized before filesystem use so client-supplied directory components are not preserved.
+
+---
+
+## Complete External RAG Flow
+
+The application now exposes both sides of the RAG lifecycle.
+
+### Ingest Knowledge
+
+```text
+POST /documents
+    ↓
+Upload PDF
+    ↓
+Load
+    ↓
+Chunk
+    ↓
+Embed
+    ↓
+Store
+```
+
+### Ask Questions
+
+```text
+POST /answers
+    ↓
+Embed Query
+    ↓
+Retrieve Relevant Chunks
+    ↓
+Augment Prompt
+    ↓
+Generate Answer
+```
+
+The intended usage is:
+
+```text
+1. POST /documents
+       ↓
+   Knowledge Stored
+
+2. POST /answers
+       ↓
+   Relevant Knowledge Retrieved
+
+3. LLM
+       ↓
+   Grounded Answer
+```
+
 ### Online RAG Pipeline
 
 ```text
@@ -253,19 +488,21 @@ HTTP Response
 - Prompt augmentation
 - Local LLM integration
 - RAG pipeline orchestration
-- FastAPI exposure
+- FastAPI answer exposure
 - Application composition root
 - Ingestion pipeline orchestration
 - Shared embedding model composition
-- Real end-to-end ingestion verification
+- Document ingestion API
+- HTTP upload adaptation
+- Original filename preservation
+- Real HTTP-to-pgvector ingestion verification
 
 ### 🚧 In Progress
 
-- Document ingestion API
+- Observability
 
 ### 📋 Planned
 
-- Observability
 - Production visibility and diagnostics
 
 ---
@@ -1122,33 +1359,96 @@ OLLAMA_TIMEOUT_SECONDS=300
 The project currently has:
 
 ```text
-106 tests passing
+143 tests passing
 ```
 
-The test suite includes:
+Sprint 13 added:
 
-- domain model tests
-- configuration tests
-- database connectivity tests
-- document loading tests
-- document chunking tests
-- local embedding tests
-- vector storage tests
-- transaction rollback tests
-- idempotency tests
-- query embedding tests
-- deterministic vector-ranking tests
-- semantic retrieval tests
-- prompt augmentation tests
-- generated answer tests
-- mocked Ollama HTTP tests
-- RAG pipeline orchestration tests
-- API application tests
-- API request validation tests
-- API dependency override tests
-- API failure behavior tests
-- real Ollama integration tests
-- complete pipeline integration tests
+```text
+7 upload adapter tests
+```
+
+```text
+6 document endpoint tests
+```
+
+```text
+1 real HTTP ingestion integration test
+```
+
+The upload adapter tests prove:
+
+```text
+DocumentUploadAdapter
+├── returns document UUID
+├── passes PDF path to pipeline
+├── copies uploaded bytes
+├── preserves original filename
+├── cleans temporary data after success
+├── cleans temporary data after failure
+└── propagates pipeline failure unchanged
+```
+
+The endpoint tests prove:
+
+```text
+POST /documents
+├── returns 201 Created
+├── returns document UUID
+├── invokes ingestion pipeline
+├── rejects missing file
+├── rejects unsupported media type
+└── returns 500 for unhandled pipeline failure
+```
+
+The real HTTP integration test proves:
+
+```text
+sample.pdf
+    ↓
+multipart HTTP upload
+    ↓
+FastAPI
+    ↓
+DocumentUploadAdapter
+    ↓
+IngestionPipeline
+    ↓
+PdfLoader
+    ↓
+RecursiveDocumentChunker
+    ↓
+LocalChunkEmbedder
+    ↓
+PostgresVectorStore
+    ↓
+PostgreSQL + pgvector
+```
+
+It verifies:
+
+```text
+HTTP
+├── 201 Created
+└── valid document UUID
+```
+
+```text
+Document
+├── persisted
+├── original filename preserved
+└── page count preserved
+```
+
+```text
+Chunks
+├── multiple chunks persisted
+├── indexes ordered
+├── content non-empty
+└── embeddings have 384 dimensions
+```
+
+The real integration test also exposed a cross-boundary metadata bug that isolated tests did not detect.
 
 ---
 
@@ -1508,70 +1808,65 @@ return the answer as an HTTP response
 
 ## Next Phase
 
-The next sprint will expose document ingestion through an HTTP API.
-
-The target flow is:
-
-```text
-HTTP Client
-    ↓
-POST /documents
-    ↓
-Upload PDF
-    ↓
-Temporary File
-    ↓
-IngestionPipeline.ingest(path)
-    ↓
-Load
-    ↓
-Chunk
-    ↓
-Embed
-    ↓
-Store
-    ↓
-Document UUID
-    ↓
-HTTP Response
-```
-
-After this sprint, the complete external application flow will be:
+The application now has a complete external RAG lifecycle:
 
 ```text
 POST /documents
     ↓
-Knowledge Stored
+Knowledge Ingestion
 ```
 
-followed by:
+and:
 
 ```text
 POST /answers
     ↓
-Knowledge Retrieved
-    ↓
-Grounded Answer
+Grounded Question Answering
 ```
 
-The document upload API should remain a thin inbound adapter.
+The next phase is observability.
 
-It should own:
-
-- multipart file handling
-- temporary file lifecycle
-- HTTP validation
-- HTTP response mapping
-
-It should not own:
-
-- PDF loading
-- chunking
-- embedding
-- vector persistence
-
-Those responsibilities remain behind:
+The target is to make the complete runtime flow visible:
 
 ```text
-IngestionPipeline
+HTTP Request
+    ↓
+Pipeline Execution
+    ↓
+Retrieval
+    ↓
+LLM Generation
+    ↓
+HTTP Response
 ```
+
+The next phase should introduce visibility into:
+
+- request execution
+- ingestion duration
+- retrieval duration
+- retrieved chunk count
+- similarity or distance information
+- LLM generation duration
+- pipeline failures
+- document ingestion failures
+
+Observability should not change the existing application contracts.
+
+The goal is to understand:
+
+```text
+what happened
+```
+
+```text
+how long it took
+```
+
+and:
+
+```text
+where it failed
+```
+
+without coupling the core pipeline to a specific external monitoring platform.

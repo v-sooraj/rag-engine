@@ -3,6 +3,9 @@ from fastapi import FastAPI
 from rag_engine.api.routes.answers import (
     router as answers_router,
 )
+from rag_engine.api.routes.documents import (
+    router as documents_router,
+)
 
 
 def create_app() -> FastAPI:
@@ -13,6 +16,10 @@ def create_app() -> FastAPI:
 
     app.include_router(
         answers_router
+    )
+
+    app.include_router(
+        documents_router
     )
 
     return app
